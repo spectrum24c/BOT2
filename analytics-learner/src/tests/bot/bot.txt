@@ -1,0 +1,141 @@
+MASTER PROMPT – paste into GPT-5 (system + user)
+SYSTEM (put this in GPT-5 system message):
+You are GPT-5 Thinking mini, an expert production software engineer, quant researcher, MQL5 developer, DevOps engineer, ML engineer (Transformers/ONNX), and security-minded mentor. You write clean, well-tested, cross-platform code and produce reproducible dev environments, Dockerfiles, unit tests, and clear README/deployment instructions. You are concise but extremely thorough and you explain tradeoffs. You do not execute trades on live accounts in examples, and you always emphasize demo/testing first.
+USER (master instruction):
+I want to build a production-grade trading system that combines a low-latency Execution Agent on MetaTrader 5 (MQL5), an Analytics & Learner stack in Python (featurization, XGBoost / small Transformer ensembles, ONNX exports, walk-forward/backtest), and an Orchestration/Bridge layer (MT4..MT5 copier, ONNX inference server, Telegram teaching bot, vector memory/RAG). Produce a complete VSCode project scaffold and code for each part described in the three sub-prompts below. For each file: produce fully working code, unit tests, a requirements.txt or package.json, Dockerfile where appropriate, and a top-level README that explains how to run everything on a Windows VPS (MT5 side) and a Linux/GPU training server (Python side). Use the three sub-prompts that follow (Parts 1-3). For each part, produce:
+exact file list and content (files must compile/run when placed in the right folders)
+simple end-to-end demo that runs on demo accounts and simulated data
+test coverage: unit tests that verify key functions (use pytest for Python, include at least 3 tests per module)
+CI workflow (GitHub Actions) that runs lint, unit tests, and builds Docker images
+README per module + top level README with architecture diagram ASCII art
+explicit acceptance criteria (what passes as "done" for that part)
+security checklist (env secrets, TLS, key handling)
+Make the overall system modular: Execution layer must be extremely safe (hard per-trade max loss, daily kill switch), the ML layer must implement walk-forward validation and ONNX export pipeline, and the orchestration layer must provide a low-latency inference endpoint and a Telegram teaching bot that sends annotated screenshot + explanation via a RAG-backed LLM. Use only open libraries and prefer Python for non-latency microservices. Provide sample data and run commands.
+Now run Part 1, Part 2 and Part 3 prompts (below) separately and deliver each as a separate commit-ready folder inside the repo titanvax-trader-demo/. Start with Part 1. After finishing each part, print a short checklist of acceptance criteria and the commands I should run locally to test.
+
+PART 1 PROMPT – Execution Layer (MT5 EA)
+Goal: build a safe, latency-conscious MT5 Expert Advisor in MQL5 that receives compact signals and executes trades on demo accounts. Provide logging, safety checks, and a simple local signal protocol (file + HTTP health check). MUST be runnable on Windows with MetaTrader 5.
+Languages: MQL5 (EA); optional small helper in PowerShell/Bash for deployment.
+What to ask GPT-5 to generate (paste this into GPT-5):
+
+You are an expert MQL5 dev. Create a project mt5-executor/ with the following deliverables:
+
+
+SignalExecutorEA.mq5 – MQL5 EA that:
+
+Reads the latest signal from a local signed JSON file C:\titanovax\signals\latest.json (format below). If file missing or invalid, do nothing.
+Validates the signal signature (HMAC-SHA256 of the JSON body, key read from encrypted file C:\titanovax\secrets\hmac.key – show helper script to create and encrypt key). If signature fails, log and ignore.
+Executes market orders with configured Lots, MaxSlippagePips, StopLossPips, TakeProfitPips. Use ORDER_FILLING_FOK or ORDER_FILLING_IOC with fallback logic.
+Enforces hard risk limits BEFORE sending any order: per-trade max loss (absolute), max open trades, daily PnL drawdown stop. When any limit triggers, EA disables trading and writes C:\titanovax\state\disabled.lock.
+Implements order retry & confirmation: checks order result and retries up to 3 times with exponential backoff; logs order latency and slippage.
+Writes enriched execution log to C:\titanovax\logs\exec_log.csv with fields: timestamp, ticket, symbol, side, volume, price, slippage, sl, tp, outcome, modelId, model_version, features_hash.
+Exposes a heartbeat file C:\titanovax\state\hb.json updated every 1s with CPU time, last signal timestamp, EA status (enabled/disabled), last_error.
+Implements OnInit, OnTimer (2s), OnDeinit and a ChartScreenShotOnTrade() routine that can be called via a file signal to save a chart image to C:\titanovax\screenshots\trade_<ticket>.png.</ticket>
+
+signal_schema.json – exact JSON schema for signals (see below).
+deploy.ps1 (PowerShell) – places EA in MQL5/Experts, creates directories, sets permissions, and demonstrates copying files for a demo.
+
+Signal JSON Schema (exact):
+{
+"timestamp": 1690000000,  // Unix epoch seconds
+"symbol": "EURUSD",
+"side": "BUY",  // "BUY" or "SELL"
+"volume": 0.01,
+"price": 1.12345,  // optional recommended price
+"modelId": "ensemble-v1",
+"model_version": "2025-09-19",
+"features_hash": "sha256:abcd..." // short fingerprint of features
+"meta": {"reason":"momentum+news-spike", "confidence":0.72}
+}
+HMAC signature file must be latest.json.hmac next to the JSON.
+Extra safety constraints (hard requirements in the prompt):
+EA must never open a trade that can lose more than risk_max_per_trade (absolute currency amount); compute risk using SL distance and current lot size; if it's above cap, refuse to trade.
+Daily drawdown cap disables trading automatically and cannot be re-enabled without manual deletion of disabled.lock.
+All secrets read from local files only; no external network calls in EA. EA may read a small file produced by a local inference server for model id/version.
+Testing & Unit checks to produce:
+Provide a .mq5 test harness script (if possible) that simulates writing latest.json and latest.json.hmac and triggers EA OnTimer() so we can see logs. If MQL5 unit tests not possible, provide integration test steps in README and a PowerShell script simulate_signals.ps1 that writes signals and reads logs.
+Acceptance criteria for Part 1:
+EA compiles in MetaEditor (no warnings), reads signal, validates HMAC, executes a demo trade on demo account, writes exec_log.csv, and writes heartbeat.
+The EA refuses to trade if disabled.lock exists or risk limits violated.
+Provided deploy.ps1 sets up directories and creates a demo HMAC key.
+Deliverables list inside mt5-executor/:
+SignalExecutorEA.mq5
+signal_schema.json
+deploy.ps1
+simulate_signals.ps1
+README.md (with exact steps: compile in MetaEditor, attach EA to EURUSD M1 chart, enable AlgoTrading, run simulate_signals.ps1)
+Sample latest.json and its .hmac file
+
+PART 2 PROMPT – Analytics & Learner (Python)
+Goal: build the data collection, feature pipeline, training, evaluation and ONNX export system in Python. This is the "brains" – it will learn from trade results, market data, news, social, and produce compact signals and ONNX models for the execution layer.The PDF content seems to be provided in the query as a series of image-based text blocks, but to ensure I have the full, accurate, and complete contents without any potential OCR errors or truncations, I'll use the available tools to browse the attached PDF file.
+First, I need to determine the number of pages or relevant pages. I'll use search_pdf_attachment with a broad keyword search to find all pages containing content.
+MASTER PROMPT – paste into GPT-5 (system + user)
+SYSTEM (put this in GPT-5 system message):
+You are GPT-5 Thinking mini, an expert production software engineer, quant researcher, MQL5 developer, DevOps engineer, ML engineer (Transformers/ONNX), and security-minded mentor. You write clean, well-tested, cross-platform code and produce reproducible dev environments, Dockerfiles, unit tests, and clear README/deployment instructions. You are concise but extremely thorough and you explain tradeoffs. You do not execute trades on live accounts in examples, and you always emphasize demo/testing first.
+USER (master instruction):
+I want to build a production-grade trading system that combines a low-latency Execution Agent on MetaTrader 5 (MQL5), an Analytics & Learner stack in Python (featurization, XGBoost / small Transformer ensembles, ONNX exports, walk-forward/backtest), and an Orchestration/Bridge layer (MT4..MT5 copier, ONNX inference server, Telegram teaching bot, vector memory/RAG). Produce a complete VSCode project scaffold and code for each part described in the three sub-prompts below. For each file: produce fully working code, unit tests, a requirements.txt or package.json, Dockerfile where appropriate, and a top-level README that explains how to run everything on a Windows VPS (MT5 side) and a Linux/GPU training server (Python side). Use the three sub-prompts that follow (Parts 1-3). For each part, produce:
+exact file list and content (files must compile/run when placed in the right folders)
+simple end-to-end demo that runs on demo accounts and simulated data
+test coverage: unit tests that verify key functions (use pytest for Python, include at least 3 tests per module)
+CI workflow (GitHub Actions) that runs lint, unit tests, and builds Docker images
+README per module + top level README with architecture diagram ASCII art
+explicit acceptance criteria (what passes as "done" for that part)
+security checklist (env secrets, TLS, key handling)
+Make the overall system modular: Execution layer must be extremely safe (hard per-trade max loss, daily kill switch), the ML layer must implement walk-forward validation and ONNX export pipeline, and the orchestration layer must provide a low-latency inference endpoint and a Telegram teaching bot that sends annotated screenshot + explanation via a RAG-backed LLM. Use only open libraries and prefer Python for non-latency microservices. Provide sample data and run commands.
+Now run Part 1, Part 2 and Part 3 prompts (below) separately and deliver each as a separate commit-ready folder inside the repo titanvax-trader-demo/. Start with Part 1. After finishing each part, print a short checklist of acceptance criteria and the commands I should run locally to test.
+
+PART 1 PROMPT – Execution Layer (MT5 EA)
+Goal: build a safe, latency-conscious MT5 Expert Advisor in MQL5 that receives compact signals and executes trades on demo accounts. Provide logging, safety checks, and a simple local signal protocol (file + HTTP health check). MUST be runnable on Windows with MetaTrader 5.
+Languages: MQL5 (EA); optional small helper in PowerShell/Bash for deployment.
+What to ask GPT-5 to generate (paste this into GPT-5):
+
+You are an expert MQL5 dev. Create a project mt5-executor/ with the following deliverables:
+
+
+SignalExecutorEA.mq5 – MQL5 EA that:
+
+Reads the latest signal from a local signed JSON file C:\titanovax\signals\latest.json (format below). If file missing or invalid, do nothing.
+Validates the signal signature (HMAC-SHA256 of the JSON body, key read from encrypted file C:\titanovax\secrets\hmac.key – show helper script to create and encrypt key). If signature fails, log and ignore.
+Executes market orders with configured Lots, MaxSlippagePips, StopLossPips, TakeProfitPips. Use ORDER_FILLING_FOK or ORDER_FILLING_IOC with fallback logic.
+Enforces hard risk limits BEFORE sending any order: per-trade max loss (absolute), max open trades, daily PnL drawdown stop. When any limit triggers, EA disables trading and writes C:\titanovax\state\disabled.lock.
+Implements order retry & confirmation: checks order result and retries up to 3 times with exponential backoff; logs order latency and slippage.
+Writes enriched execution log to C:\titanovax\logs\exec_log.csv with fields: timestamp, ticket, symbol, side, volume, price, slippage, sl, tp, outcome, modelId, model_version, features_hash.
+Exposes a heartbeat file C:\titanovax\state\hb.json updated every 1s with CPU time, last signal timestamp, EA status (enabled/disabled), last_error.
+Implements OnInit, OnTimer (2s), OnDeinit and a ChartScreenShotOnTrade() routine that can be called via a file signal to save a chart image to C:\titanovax\screenshots\trade_<ticket>.png.</ticket>
+
+signal_schema.json – exact JSON schema for signals (see below).
+deploy.ps1 (PowerShell) – places EA in MQL5/Experts, creates directories, sets permissions, and demonstrates copying files for a demo.
+
+Signal JSON Schema (exact):
+{
+"timestamp": 1690000000,  // Unix epoch seconds
+"symbol": "EURUSD",
+"side": "BUY",  // "BUY" or "SELL"
+"volume": 0.01,
+"price": 1.12345,  // optional recommended price
+"modelId": "ensemble-v1",
+"model_version": "2025-09-19",
+"features_hash": "sha256:abcd..." // short fingerprint of features
+"meta": {"reason":"momentum+news-spike", "confidence":0.72}
+}
+HMAC signature file must be latest.json.hmac next to the JSON.
+Extra safety constraints (hard requirements in the prompt):
+EA must never open a trade that can lose more than risk_max_per_trade (absolute currency amount); compute risk using SL distance and current lot size; if it's above cap, refuse to trade.
+Daily drawdown cap disables trading automatically and cannot be re-enabled without manual deletion of disabled.lock.
+All secrets read from local files only; no external network calls in EA. EA may read a small file produced by a local inference server for model id/version.
+Testing & Unit checks to produce:
+Provide a .mq5 test harness script (if possible) that simulates writing latest.json and latest.json.hmac and triggers EA OnTimer() so we can see logs. If MQL5 unit tests not possible, provide integration test steps in README and a PowerShell script simulate_signals.ps1 that writes signals and reads logs.
+Acceptance criteria for Part 1:
+EA compiles in MetaEditor (no warnings), reads signal, validates HMAC, executes a demo trade on demo account, writes exec_log.csv, and writes heartbeat.
+The EA refuses to trade if disabled.lock exists or risk limits violated.
+Provided deploy.ps1 sets up directories and creates a demo HMAC key.
+Deliverables list inside mt5-executor/:
+SignalExecutorEA.mq5
+signal_schema.json
+deploy.ps1
+simulate_signals.ps1
+README.md (with exact steps: compile in MetaEditor, attach EA to EURUSD M1 chart, enable AlgoTrading, run simulate_signals.ps1)
+Sample latest.json and its .hmac file
+
+PART 2 PROMPT – Analytics & Learner (Python)
+Goal: build the data collection, feature pipeline, training, evaluation and ONNX export system in Python. This is the "brains" – it will learn from trade results, market data, news, social, and produce compact signals and ONNX models for the execution layer.

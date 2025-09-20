@@ -1,0 +1,4 @@
+gemini and telegram API keys
+
+gemini:AIzaSyDOphjQHd-fkDuUNcZ3fXbTN7ePfonOcso
+telegram:8358670099:AAH9nurnfXys8sGRQWsRg-lSQZHer2rgIfg
